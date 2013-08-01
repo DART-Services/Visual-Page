@@ -1,6 +1,5 @@
 package org.visualpage;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
@@ -41,6 +40,7 @@ public static void main(String[] args) {
 	private static class Packager implements FileVisitor<Path>
 	{
 		private static final Path lineFeatures = Paths.get("lineFeatures.txt");
+		private static final Path pageFeatures = Paths.get("pageFeatures.txt");
 		private volatile String dirname;
 		private final Path base;
 		public Packager(Path base) {
@@ -57,9 +57,13 @@ public static void main(String[] args) {
 		public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
 			if (file.endsWith(lineFeatures))
 			{
-				String fname = dirname + "_lines.txt";
+				String fname = "lines_" + dirname + ".txt";
 				Files.copy(file, base.resolve(fname));
-				return FileVisitResult.SKIP_SIBLINGS;
+			}
+			if (file.endsWith(pageFeatures))
+			{
+				String fname = "pages_" + dirname + ".txt";
+				Files.copy(file, base.resolve(fname));
 			}
 			
 			return FileVisitResult.CONTINUE;

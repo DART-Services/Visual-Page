@@ -45,7 +45,9 @@ public class IngestMain {
     {
     	private static Pattern p = Pattern.compile("pg_0*(\\d+).png$");
     	private ImageAnalyzer analyzer;
-
+		private long start;
+		private long ct = 0;
+		
 		ImageVisitor(ImageAnalyzer analyzer)
     	{
 			this.analyzer = analyzer;
@@ -55,9 +57,11 @@ public class IngestMain {
 		public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
 			Path features = dir.resolve("lineFeatures.txt");
 			if (Files.exists(features))
-				Files.delete(features);
-//				return FileVisitResult.SKIP_SUBTREE;
+				return FileVisitResult.SKIP_SUBTREE;
+//				Files.delete(features);
 			
+			start = System.currentTimeMillis();
+			System.out.println("Processing Work: " + dir.getFileName());
 			return FileVisitResult.CONTINUE;
 		}
 
@@ -71,7 +75,9 @@ public class IngestMain {
 			
 			BufferedImage image = ImageIO.read(file.toFile());
 			try {
-				analyzer.process(matcher.group(1), image);
+				boolean handled = analyzer.process(matcher.group(1), image);
+				if (handled)
+					ct++;
 			} catch (ImageProcessorException e) {
 				throw new IOException("Failed to process file: " + file + ". ", e);
 			}
@@ -87,14 +93,30 @@ public class IngestMain {
 		@Override
 		public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
 			// write output
-			Path path = dir.resolve("lineFeatures.txt");
-			try (PrintStream out = new PrintStream(Files.newOutputStream(path)))
+			Path linePath = dir.resolve("lineFeatures.txt");
+			Path pagesPath = dir.resolve("pageFeatures.txt");
+			try (PrintStream out = new PrintStream(Files.newOutputStream(linePath)))
 			{
 				analyzer.getLineFeatures().print(out);
 				out.flush();
 			}
+			try (PrintStream out = new PrintStream(Files.newOutputStream(pagesPath)))
+			{
+				analyzer.getPageFeatures().print(out);
+				out.flush();
+			}
 			
+			long elapsed = System.currentTimeMillis() - start;
+			System.out.printf("\tElapsed Time: " + (double)elapsed / (1000 * 60));
+			System.out.println("\tTime per Page: " + (double)elapsed / ct);
+			
+			// HACK this is not extensible
 			analyzer.getLineFeatures().clear();
+			analyzer.getLineFeatures().setContext(null);
+			
+			analyzer.getPageFeatures().clear();
+			analyzer.getPageFeatures().setContext(null);
+			
 			return FileVisitResult.CONTINUE;
 		}
     }

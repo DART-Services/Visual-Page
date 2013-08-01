@@ -7,27 +7,32 @@ import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
-import org.dharts.dia.model.PageItem;
-import org.dharts.dia.model.PageModelNode;
-
-public class FeatureExtractorSet 
+public class FeatureExtractorSet<T>
 {
-	private final Map<String, NumericFeatureExtractor> extractors = new HashMap<>();
-	private int size = 0;
+	private final Map<String, FeatureExtractor<T>> extractors = new HashMap<>();
 	protected final Map<String, Mark> bookmarks = new HashMap<>();
+	private int size = 0;
 	
-	public void addFeature(NumericFeatureExtractor extractor)
+	public void addFeature(FeatureExtractor<T> extractor)
 	{
 		synchronized (this) {
 			extractors.put(extractor.getName(), extractor);
 		}
 	}
 	
-	public void addObservation(PageModelNode<? extends PageItem> node) {
+	public void setContext(FeatureContext ctx) {
+		synchronized (this) {
+			for (FeatureExtractor<T> extractor : extractors.values())  {
+				extractor.setContext(ctx);
+			}
+		}
+	}
+
+	public void addObservation(T observation) {
 		synchronized (this) {
 			size++;
-			for (NumericFeatureExtractor extractor : extractors.values())  {
-				extractor.handle(node);
+			for (FeatureExtractor<T> extractor : extractors.values())  {
+				extractor.handle(observation);
 			}
 		}
 	}
@@ -36,7 +41,7 @@ public class FeatureExtractorSet
 		synchronized (this) {
 			size = 0;
 			bookmarks.clear();
-			for (NumericFeatureExtractor extractor : extractors.values())  {
+			for (FeatureExtractor<T> extractor : extractors.values())  {
 				extractor.clear();
 			}
 		}
@@ -51,33 +56,38 @@ public class FeatureExtractorSet
 	}
 	
 	public void print(PrintStream out) {
+		print(out, "\t");
+	}
+	
+	public void print(PrintStream out, String separator) {
 		synchronized (this) {
-			printHeader(out);
-			printValues(out);
+			printHeader(out, separator);
+			printValues(out, separator);
 		}
 	}
 	
-	private void printHeader(PrintStream out) {
+	private void printHeader(PrintStream out, String separator) {
 		if (!bookmarks.isEmpty())
 			out.print("Bookmarks\t");
 		
-		for (NumericFeatureExtractor extractor : extractors.values())
+		for (FeatureExtractor<T> extractor : extractors.values())
 		{
-			out.print(extractor.getName() + "\t");
+			out.print(extractor.getName() + separator);
 		}
 		
 		out.println();
 	}
 	
-	private void printValues(PrintStream out) {
+	private void printValues(PrintStream out, String separator) {
 		MarkIterator marks = new MarkIterator(new TreeSet<Mark>(bookmarks.values()));
 		for (int i = 0; i < size; i++)
 		{
-			out.print(marks.next() + "\t");
-			for (NumericFeatureExtractor extractor : extractors.values())
+			out.print(marks.next() + separator);
+			for (FeatureExtractor<T> extractor : extractors.values())
 			{
-				out.print(extractor.get(i) + "\t");
+				out.print(extractor.getAsString(i) + separator);
 			}
+			
 			out.println();
 		}
 	}
@@ -133,6 +143,4 @@ public class FeatureExtractorSet
 			throw new UnsupportedOperationException();
 		}
 	}
-
-	
 }

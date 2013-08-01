@@ -1,22 +1,10 @@
 package org.visualpage;
 
 import java.awt.image.BufferedImage;
-import java.awt.image.Raster;
-import java.io.File;
 import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.file.FileVisitResult;
-import java.nio.file.FileVisitor;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import javax.imageio.ImageIO;
 
 import org.dharts.dia.BoundingBox;
+import org.dharts.dia.SimpleBoundingBox;
 import org.dharts.dia.model.PageItem;
 import org.dharts.dia.model.PageModel;
 import org.dharts.dia.model.PageModelException;
@@ -25,14 +13,19 @@ import org.dharts.dia.tesseract.ImageAnalyzerFactory;
 import org.dharts.dia.tesseract.TesseractException;
 import org.dharts.dia.tesseract.model.TesseractLevelCatalog;
 import org.dharts.dia.tesseract.model.TesseractPageAnalyzer;
+import org.dharts.dia.threshold.FastSauvola;
+import org.visualpage.features.DoubleList;
+import org.visualpage.features.FeatureContext;
 import org.visualpage.features.FeatureExtractorSet;
 import org.visualpage.features.NumericFeatureExtractor;
 
 public class ImageAnalyzer implements AutoCloseable {
 	
     private ImageAnalyzerFactory factory;
-    private FeatureExtractorSet lineFeatures = new FeatureExtractorSet();
-    
+    private FeatureExtractorSet<PageModelNode<? extends PageItem>> lineFeatures = new FeatureExtractorSet<>();
+    private FeatureExtractorSet<PageContext> pageFeatures = new FeatureExtractorSet<>();
+	private PageContext pageContext;
+
     public void initialize() 
     {
         // TODO assess thread safety
@@ -50,7 +43,8 @@ public class ImageAnalyzer implements AutoCloseable {
             throw new IllegalStateException("Could not initialize ImageAnalyzerFactory", e);
         }
         
-        initFeatures();
+        initLineFeatures();
+        initPageFeatures();
     }
 
 	private static boolean isWord(PageModelNode<? extends PageItem> node)
@@ -58,64 +52,159 @@ public class ImageAnalyzer implements AutoCloseable {
 		return TesseractLevelCatalog.WORD.equals(node.getLevel().getName());
 	}
 
-	public FeatureExtractorSet getLineFeatures() {
+	public FeatureExtractorSet<?> getLineFeatures() {
 		return lineFeatures;
 	}
 	
-	void initFeatures()
+	public FeatureExtractorSet<?> getPageFeatures() {
+		return pageFeatures;
+	}
+	
+	void initLineFeatures()
 	{
-		lineFeatures.addFeature(new NumericFeatureExtractor("Indentation") {
+		lineFeatures.addFeature(new BaseNodeExtractor("Indentation") {
 			@Override
 			public void handle(PageModelNode<? extends PageItem> node) {
 				BoundingBox box = node.getItem().getBox();
 				addValue(box.getLeft());
 			}
 		});
-		lineFeatures.addFeature(new NumericFeatureExtractor("Line Width") {
+		
+		lineFeatures.addFeature(new BaseNodeExtractor("Line Width") {
 			@Override
 			public void handle(PageModelNode<? extends PageItem> node) {
 				BoundingBox box = node.getItem().getBox();
 				addValue(box.getWidth());
 			}
 		});
-		lineFeatures.addFeature(new NumericFeatureExtractor("Line Height") {
+		
+		lineFeatures.addFeature(new BaseNodeExtractor("Line Width %") {
+			@Override
+			public void handle(PageModelNode<? extends PageItem> node) {
+				BoundingBox box = node.getItem().getBox();
+				addValue((double)box.getWidth() / ctx.getWidth());
+			}
+		});
+		
+		lineFeatures.addFeature(new BaseNodeExtractor("Line Height") {
 			@Override
 			public void handle(PageModelNode<? extends PageItem> node) {
 				BoundingBox box = node.getItem().getBox();
 				addValue(box.getHeight());
 			}
 		});
-		lineFeatures.addFeature(new NumericFeatureExtractor("Word per Line") {
+		
+		lineFeatures.addFeature(new BaseNodeExtractor("Line Height %") {
+			@Override
+			public void handle(PageModelNode<? extends PageItem> node) {
+				BoundingBox box = node.getItem().getBox();
+				addValue((double)box.getHeight() / ctx.getHeight());
+			}
+		});
+		
+		lineFeatures.addFeature(new BaseNodeExtractor("Words per Line") {
 			@Override
 			public void handle(PageModelNode<? extends PageItem> node) {
 				int numOfWords = 0;
-	    		for (PageModelNode<? extends PageItem> child : node.getChildren())
-	    		{
-	    			if (!isWord(child))
-	    				continue;
-	    			
+				for (PageModelNode<? extends PageItem> child : node.getChildren())
+				{
+					if (!isWord(child))
+						continue;
+					
 					numOfWords++;
-					// TODO calculate density
-	    		}
+				}
+				
 				addValue(numOfWords);
 			}
 		});
-		lineFeatures.addFeature(new NumericFeatureExtractor("Padding") {
-			private PageModelNode<? extends PageItem> prev = null;
+		
+		lineFeatures.addFeature(new PaddingExtractor());
+	}
+	
+	void initPageFeatures()
+	{
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Left Margin") {
+
 			@Override
-			public void handle(PageModelNode<? extends PageItem> node) {
-				if (prev != null)
-				{
-					BoundingBox box = node.getItem().getBox();
-					BoundingBox pBox = prev.getItem().getBox();
-					addValue(box.getTop() - pBox.getBottom());
-				}
-				else 
-				{
-					addValue(Double.NaN);
-				}
-				
-				prev = node;
+			public void handle(PageContext observation) {
+				addValue(observation.getMargins().getLeft());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Top Margin") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.getMargins().getTop());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Right Margin") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.getMargins().getRight());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Bottom Margin") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.getMargins().getBottom());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Indent StdDev") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.getLeftSigma());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Foreground Ratio") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.getForegroundRatio());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Line Height Mean") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.lineHeight.getMean());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Line Height StdDev") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.lineHeight.getSigma());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Line Width Mean") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.lineWidth.getMean());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Line Width StdDev") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.lineWidth.getSigma());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Line Padding Mean") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.linePadding.getMean());
+			}
+		});
+		pageFeatures.addFeature(new NumericFeatureExtractor<PageContext>("Line Padding StdDev") {
+			
+			@Override
+			public void handle(PageContext observation) {
+				addValue(observation.linePadding.getSigma());
 			}
 		});
 	}
@@ -126,72 +215,29 @@ public class ImageAnalyzer implements AutoCloseable {
         if (factory != null && !factory.isClosed())
             factory.close(); 
     }
-
-	// simple dumb checker for percentage of dark pixels
-    private double getPixelDensity(BufferedImage src)
-    {
-        Raster data = src.getData();
-        int w = src.getWidth();
-        int h = src.getHeight();
-        int numBands = src.getColorModel().getNumColorComponents();
-        
-//        double sum = 0;
-//        double sumSq = 0;
-        double ct = 0;
-//        double n = 0;
-//        double mean = 0;
-//        double M2 = 0;
-        boolean lastPxWasDark = false;
-        for (int x = 0; x < w; x++) {
-            for (int y = 0; y < h; y++) {
-                double[] buff= new double[numBands];
-                buff = data.getPixel(x, y, buff);
-                
-                double avg = 0;
-                for (int b = 0; b < numBands; b++) {
-                    avg += buff[b];
-                }
-                
-                double px = avg / numBands;
-//                n++;
-//                double delta = px - mean;
-//                mean = mean + delta / n;
-//                M2 = M2 + delta * (px - mean);
-//                sum += px;
-//                sumSq += px * px;
-                boolean isDark = (px < 100);
-                if (isDark != lastPxWasDark)
-                {
-                    ct++;
-                    lastPxWasDark = isDark;
-                }
-                // sum += avg / numBands;
-            }
-        }
-//        
-//        int sz = w * h;
-//        double var = sumSq - ((sum * sum) / sz) / sz;
-//        double var = M2 / (n - 1);
-        return ct / (w * h);
-//        return sum / (w * h);
-    }
     
-    public void process(String name, BufferedImage src) throws ImageProcessorException {
+    public boolean process(String name, BufferedImage src) throws ImageProcessorException {
     	// TODO use this to calculate a variety of page-level features
-    	double pixelDensity = getPixelDensity(src);
-    	if (pixelDensity < .001) {
-    		// HACK: guard against Tesseract seg fault
-    		System.out.println("Skipping Page: " + name + ": " + pixelDensity);
-    		return;
-    	}
     	
-    	System.out.println("Prossessing Page: " + name + ": " + pixelDensity);
+//    	FastSauvola thresholder = new FastSauvola();
+//    	thresholder.initialize(src);
+//    	thresholder.setGenerateImage(false);
+    	
+    	TextLineContext ctx = new TextLineContext(src);
     	lineFeatures.mark(name);
+    	pageFeatures.mark(name);
+		lineFeatures.setContext(ctx);
 
+		pageContext = new PageContext(src);
+		// TODO estimate lines based on projection profile and determine 
+		//		whether or not to proceed accordingly 
     	TesseractPageAnalyzer analyser = new TesseractPageAnalyzer(factory); 
     	try {
     		PageModel model = analyser.analyze(src);
     		extractFeatures(model);
+    		
+    		pageFeatures.addObservation(pageContext);
+    		return true;
     	} catch (PageModelException e) {
     		throw new ImageProcessorException("Could not build page layout model.", e);
     	}
@@ -202,6 +248,11 @@ public class ImageAnalyzer implements AutoCloseable {
 		if (node.getLevel().getName().equals(TesseractLevelCatalog.TEXTLINE))
 		{
 			lineFeatures.addObservation(node);
+			pageContext.observeLine(node);
+		}
+		else if (node.getLevel().getName().equals(TesseractLevelCatalog.WORD))
+		{
+			pageContext.observeWord(node);
 		}
 		
 		for (PageModelNode<?> n : node.getChildren()) {
@@ -216,5 +267,183 @@ public class ImageAnalyzer implements AutoCloseable {
 		}
 	}
 	
+	private abstract static class BaseNodeExtractor extends NumericFeatureExtractor<PageModelNode<? extends PageItem>> {
+		protected volatile TextLineContext ctx = null;
+		
+		private BaseNodeExtractor(String name) {
+			super(name);
+		}
+		
+		@Override
+		public void setContext(FeatureContext ctx) {
+			if (ctx != null && !TextLineContext.class.isInstance(ctx))
+				throw new IllegalArgumentException("Invalid feature context. Expected instance of '" + TextLineContext.class.getName() + "'. Found '" + ctx.getClass().getName() + "'.");
 	
+			this.ctx = (TextLineContext)ctx;
+		}
+	}
+
+	private final static class PaddingExtractor extends BaseNodeExtractor {
+		private PageModelNode<? extends PageItem> prevTextline = null;
+	
+		private PaddingExtractor() {
+			super("Padding");
+		}
+	
+		@Override
+		public void handle(PageModelNode<? extends PageItem> node) {
+			if (prevTextline != null)
+			{
+				BoundingBox box = node.getItem().getBox();
+				BoundingBox pBox = prevTextline.getItem().getBox();
+				addValue(box.getTop() - pBox.getBottom());
+			}
+			else 
+			{
+				addValue(Double.NaN);
+			}
+			
+			prevTextline = node;
+		}
+		
+		/**
+		 * This implementation requires that the context be updated for each new 
+		 * document image to be processed, prior to performing any analytical work. 
+		 */
+		@Override
+		public void setContext(FeatureContext ctx) {
+			prevTextline = null;
+		}
+	}
+
+	final static class TextLineContext implements FeatureContext
+	{
+		private int width;
+		private int height;
+
+		TextLineContext(BufferedImage pg)
+		{
+			width = pg.getWidth();
+			height = pg.getHeight();
+		}
+		
+		public int getWidth() {
+			return width;
+		}
+
+		public int getHeight() {
+			return height;
+		}
+	}
+	
+	final static class PageContext implements FeatureContext
+	{
+		private int top, right, bottom;
+		private int height;
+		private int width;
+		private int area;
+		
+		private BoundingBox pBox = null;
+		DoubleList leftMargin = new DoubleList();
+		
+		DoubleList lineHeight = new DoubleList();
+		DoubleList lineWidth = new DoubleList();
+		DoubleList linePadding = new DoubleList();
+		
+		private int wordCoverage = 0;
+		private FastSauvola thresholder;
+
+		private PageContext(BufferedImage src)
+		{
+			thresholder = new FastSauvola();
+	    	thresholder.initialize(src);
+	    	thresholder.setGenerateImage(false);
+	    	try {
+				thresholder.call();
+			} catch (Exception e) {
+				throw new IllegalStateException(e);		// HACK do something more intelligent/informative
+			} 
+	    	
+	    	width = thresholder.getWidth();
+	    	height = thresholder.getHeight();
+	    	area = thresholder.getArea();
+	    	top = height;
+	    	
+	    	right = 0;
+	    	bottom = 0;
+		}
+		
+		/** 
+		 * Called while visiting the page for every 
+		 * @param node
+		 */
+		public void observeLine(PageModelNode<? extends PageItem> node) {
+			BoundingBox box = node.getBox();
+			
+			// HACK: simple approach, we'll assume any textline we encounter is 
+			//       valid for determining margins
+			
+			leftMargin.add(box.getLeft());
+			
+			if (box.getTop() < top)
+				top = box.getTop();
+			
+			if (box.getRight() > right)
+				right = box.getRight();
+			
+			if (box.getBottom() > bottom)
+				bottom = box.getBottom();
+			
+			lineHeight.add(box.getBottom() - box.getTop());
+			lineWidth.add(box.getRight() - box.getLeft());
+			lineWidth.add(box.getRight() - box.getLeft());
+			
+			if (pBox != null)
+			{
+				linePadding.add(box.getTop() - pBox.getBottom());
+			}
+			else 
+			{
+				linePadding.add(Double.NaN);
+			}
+			
+			pBox = box;
+		}
+
+		public void observeWord(PageModelNode<? extends PageItem> node) {
+			wordCoverage += node.getBox().getArea();
+		}
+		
+		/**
+		 * @return The leftmost edge of a bounding box on the page. Note that this 
+		 * 		is only roughly approximates a margin.
+		 */
+		public long getLeftMargin() {
+			return Math.round(leftMargin.getMin());
+		}
+		
+		public BoundingBox getMargins()
+		{
+			long left = Math.round(leftMargin.getMin());
+			return new SimpleBoundingBox(Long.valueOf(left).intValue(), top, right, bottom);
+		}
+		
+		public double getLeftSigma()
+		{
+			return leftMargin.getSigma();
+		}
+		
+		public double getForegroundRatio()
+		{
+			return (double)thresholder.getForegroundPixelCount() / area;
+		}
+		
+		/**
+		 * @return The precentage of the image area that is covered by 
+		 * 		the bounding boxes for words. This measure provides a 
+		 */
+		public double getWordCoverage() {
+			return (double)wordCoverage/area;
+		}
+	}
 }
