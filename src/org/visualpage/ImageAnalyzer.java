@@ -2,6 +2,7 @@ package org.visualpage;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.util.List;
 
 import org.dharts.dia.BoundingBox;
 import org.dharts.dia.SimpleBoundingBox;
@@ -9,11 +10,14 @@ import org.dharts.dia.model.PageItem;
 import org.dharts.dia.model.PageModel;
 import org.dharts.dia.model.PageModelException;
 import org.dharts.dia.model.PageModelNode;
+import org.dharts.dia.seg.lines.ProjectionProfiler;
 import org.dharts.dia.tesseract.ImageAnalyzerFactory;
 import org.dharts.dia.tesseract.TesseractException;
 import org.dharts.dia.tesseract.model.TesseractLevelCatalog;
 import org.dharts.dia.tesseract.model.TesseractPageAnalyzer;
 import org.dharts.dia.threshold.FastSauvola;
+import org.dharts.dia.threshold.ImageUtils;
+import org.dharts.dia.util.IntegralImageImpl;
 import org.visualpage.features.DoubleList;
 import org.visualpage.features.FeatureContext;
 import org.visualpage.features.FeatureExtractorSet;
@@ -218,10 +222,19 @@ public class ImageAnalyzer implements AutoCloseable {
     
     public boolean process(String name, BufferedImage src) throws ImageProcessorException {
     	// TODO use this to calculate a variety of page-level features
+    	IntegralImageImpl iImage = new IntegralImageImpl();
+    	iImage.initialize(ImageUtils.grayscale(src));
     	
-//    	FastSauvola thresholder = new FastSauvola();
-//    	thresholder.initialize(src);
-//    	thresholder.setGenerateImage(false);
+    	FastSauvola thresholder = new FastSauvola();
+    	thresholder.initialize(iImage);
+    	thresholder.setGenerateImage(false);
+    	
+    	// estimate number of lines based on projection profile and determine 
+    	//		whether or not to proceed accordingly 
+    	ProjectionProfiler profiler = ProjectionProfiler.create(iImage);
+		List<Integer> lines = profiler.findLines();
+		if (lines.size() < 4)
+			return false;
     	
     	TextLineContext ctx = new TextLineContext(src);
     	lineFeatures.mark(name);
@@ -229,8 +242,6 @@ public class ImageAnalyzer implements AutoCloseable {
 		lineFeatures.setContext(ctx);
 
 		pageContext = new PageContext(src);
-		// TODO estimate lines based on projection profile and determine 
-		//		whether or not to proceed accordingly 
     	TesseractPageAnalyzer analyser = new TesseractPageAnalyzer(factory); 
     	try {
     		PageModel model = analyser.analyze(src);
@@ -425,6 +436,10 @@ public class ImageAnalyzer implements AutoCloseable {
 		public BoundingBox getMargins()
 		{
 			long left = Math.round(leftMargin.getMin());
+			if (left < right)
+				left = right;
+			if (top > bottom)
+				top = bottom;
 			return new SimpleBoundingBox(Long.valueOf(left).intValue(), top, right, bottom);
 		}
 		
