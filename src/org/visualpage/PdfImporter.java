@@ -31,7 +31,6 @@ public class PdfImporter {
 	private final int ppi;
 	private final String fmt;
 	
-	
 	public PdfImporter(Path output, int ppi, String fmt) {
 		this.output = output;
 		if (!Files.exists(output))

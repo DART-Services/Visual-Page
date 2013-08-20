@@ -23,7 +23,7 @@ public class IngestMain {
 //		Path pg = work.resolve("pg_00237.png");
 		
 			
-    	Path base = Paths.get("H:\\dev\\projects\\VisualPage\\data\\output");
+    	Path base = Paths.get("H:\\dev\\projects\\VisualPage\\data\\output\\45");
 		try (ImageAnalyzer analyzer = new ImageAnalyzer())
 		{
 			analyzer.initialize();
