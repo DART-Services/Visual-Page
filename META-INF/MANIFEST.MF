@@ -7,9 +7,12 @@ Bundle-Vendor: Digital Archives, Research & Technology Services
 Bundle-RequiredExecutionEnvironment: JavaSE-1.7
 Import-Package: org.dharts.dia,
  org.dharts.dia.model,
+ org.dharts.dia.seg,
+ org.dharts.dia.seg.lines,
  org.dharts.dia.tesseract,
  org.dharts.dia.tesseract.model,
  org.dharts.dia.threshold,
+ org.dharts.dia.util,
  org.dharts.utils.pdf,
  org.dharts.utils.pdf.ghostscript
 Require-Bundle: org.eclipse.osgi;bundle-version="3.9.0"
