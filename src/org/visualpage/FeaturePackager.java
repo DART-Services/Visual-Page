@@ -14,12 +14,12 @@ import java.nio.file.attribute.BasicFileAttributes;
 public class FeaturePackager {
 
 public static void main(String[] args) {
-		
+
 //		Path work = base.resolve("Allingham Fifty_Modern_Poems");
 //		Path pg = work.resolve("pg_00237.png");
-		
-			
-    	Path base = Paths.get("H:\\dev\\projects\\VisualPage\\data\\output");
+
+
+    	Path base = Paths.get("H:\\dev\\projects\\VisualPage\\data\\output\\75");
 		try//  (ImageAnalyzer analyzer = new ImageAnalyzer())
 		{
 //			analyzer.initialize();
@@ -28,7 +28,7 @@ public static void main(String[] args) {
 //			{
 //				if (!work.isDirectory())
 //					continue;
-				
+
 				Files.walkFileTree(base, new Packager(base));
 //			}
 		} catch (IOException e) {
@@ -46,7 +46,7 @@ public static void main(String[] args) {
 		public Packager(Path base) {
 			this.base = base;
 		}
-		
+
 		@Override
 		public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
 			dirname = dir.getFileName().toString();
@@ -65,7 +65,7 @@ public static void main(String[] args) {
 				String fname = "pages_" + dirname + ".txt";
 				Files.copy(file, base.resolve(fname));
 			}
-			
+
 			return FileVisitResult.CONTINUE;
 		}
 
