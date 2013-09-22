@@ -18,12 +18,7 @@ import javax.imageio.ImageIO;
 public class IngestMain {
 
 	public static void main(String[] args) {
-		
-//		Path work = base.resolve("Allingham Fifty_Modern_Poems");
-//		Path pg = work.resolve("pg_00237.png");
-		
-			
-    	Path base = Paths.get("H:\\dev\\projects\\VisualPage\\data\\output\\45");
+    	Path base = Paths.get("H:\\dev\\projects\\VisualPage\\data\\output\\75");
 		try (ImageAnalyzer analyzer = new ImageAnalyzer())
 		{
 			analyzer.initialize();
@@ -32,7 +27,7 @@ public class IngestMain {
 			{
 				if (!work.isDirectory())
 					continue;
-				
+
 				Files.walkFileTree(work.toPath(), new ImageVisitor(analyzer));
 			}
 		} catch (IOException e) {
@@ -40,26 +35,25 @@ public class IngestMain {
 			e.printStackTrace();
 		}
 	}
-    
+
     private static class ImageVisitor implements FileVisitor<Path>
     {
     	private static Pattern p = Pattern.compile("pg_0*(\\d+).png$");
     	private ImageAnalyzer analyzer;
 		private long start;
 		private long ct = 0;
-		
+
 		ImageVisitor(ImageAnalyzer analyzer)
     	{
 			this.analyzer = analyzer;
     	}
-		
+
 		@Override
 		public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
 			Path features = dir.resolve("lineFeatures.txt");
 			if (Files.exists(features))
 				return FileVisitResult.SKIP_SUBTREE;
-//				Files.delete(features);
-			
+
 			start = System.currentTimeMillis();
 			System.out.println("Processing Work: " + dir.getFileName());
 			return FileVisitResult.CONTINUE;
@@ -67,21 +61,25 @@ public class IngestMain {
 
 		@Override
 		public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-			
+
 			String filename = file.getFileName().toString();
 			Matcher matcher = p.matcher(filename);
 			if (!matcher.find())
 				return FileVisitResult.CONTINUE;
-			
+
 			BufferedImage image = ImageIO.read(file.toFile());
 			try {
+				System.out.print("Processing File: " + file.getFileName());
 				boolean handled = analyzer.process(matcher.group(1), image);
 				if (handled)
 					ct++;
+				else
+					System.out.print("\t ... skipped");
+				System.out.println("");
 			} catch (ImageProcessorException e) {
 				throw new IOException("Failed to process file: " + file + ". ", e);
 			}
-			
+
 			return FileVisitResult.CONTINUE;
 		}
 
@@ -105,18 +103,18 @@ public class IngestMain {
 				analyzer.getPageFeatures().print(out);
 				out.flush();
 			}
-			
+
 			long elapsed = System.currentTimeMillis() - start;
 			System.out.printf("\tElapsed Time: " + (double)elapsed / (1000 * 60));
 			System.out.println("\tTime per Page: " + (double)elapsed / ct);
-			
+
 			// HACK this is not extensible
 			analyzer.getLineFeatures().clear();
 			analyzer.getLineFeatures().setContext(null);
-			
+
 			analyzer.getPageFeatures().clear();
 			analyzer.getPageFeatures().setContext(null);
-			
+
 			return FileVisitResult.CONTINUE;
 		}
     }
