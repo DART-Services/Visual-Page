@@ -10,16 +10,31 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.Hashtable;
 
 import javax.imageio.ImageIO;
 
+import org.dharts.dia.BoundingBox;
+import org.dharts.dia.seg.ConnectedComponent;
 import org.dharts.dia.seg.ConnectedComponents;
 import org.dharts.dia.threshold.FastSauvola;
 import org.dharts.dia.util.ImageWrapper;
 
 public class TestExtractCC {
 	private static final ColorConvertOp op = new ColorConvertOp(ColorSpace.getInstance(ColorSpace.CS_GRAY), null);
+
+	private static int[][] colorMap = new int[][]
+		{
+			{127, 201, 127},
+			{190, 174, 212},
+			{253, 192, 134},
+			{255, 255, 153},
+			{56, 108, 176},
+			{240, 2, 127},
+			{191, 91, 23},
+			{102, 102, 102}
+		};
 
 	public TestExtractCC() {
 		// TODO Auto-generated constructor stub
@@ -30,17 +45,6 @@ public class TestExtractCC {
 		int colorIx = -1;
 		int[] bg = {255, 255, 255};
 
-		int[][] colorMap = new int[][]
-			{
-				{127, 201, 127},
-				{190, 174, 212},
-				{253, 192, 134},
-				{255, 255, 153},
-				{56, 108, 176},
-				{240, 2, 127},
-				{191, 91, 23},
-				{102, 102, 102}
-			};
 
 		int[] labelColors = new int[50_000];
 
@@ -100,6 +104,33 @@ public class TestExtractCC {
 		}
 	}
 
+	public static BufferedImage render(Collection<ConnectedComponent> components, BufferedImage model) {
+		int width = model.getWidth();
+		int height = model.getHeight();
+
+		ColorModel colorModel = model.getColorModel();
+		WritableRaster raster = colorModel.createCompatibleWritableRaster(width, height);
+		for (int r = 0; r < model.getHeight(); r++)  {
+			for (int c = 0; c < model.getWidth(); c++) {
+				for (int b = 0; b < 3; b++) {
+					raster.setSample(c, r, b, 255);
+				}
+			}
+		}
+
+		int cIx = 0;
+		for (ConnectedComponent cc : components)
+		{
+			BoundingBox box = cc.getBounds();
+			if (box.getWidth() > 150 || box.getHeight() > 60 || cc.getNumberOfPixels() < 25)
+				continue;
+			ConnectedComponent.write(cc, raster, colorMap[cIx]);
+			cIx = cIx < colorMap.length - 1 ? cIx + 1 : 0;
+		}
+
+		return new BufferedImage(colorModel, raster, true, new Hashtable<>());
+	}
+
 	private static void printStats(int ct, long acc) {
 		double avg = (double)acc / ct;
 
@@ -152,7 +183,7 @@ public class TestExtractCC {
 
 				acc += System.currentTimeMillis() - start;
 				writeResult(coloredImage, pg);
-//				writeResult(FastSauvola.toImage(binaryIm, image), pg);
+				writeResult(FastSauvola.toImage(binaryIm, image), pg);
 
 			}
 		} catch (Exception e) {
