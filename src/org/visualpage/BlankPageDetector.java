@@ -23,7 +23,40 @@ import org.dharts.dia.util.IntegralImage;
  */
 public class BlankPageDetector {
 
-	public static Collection<ConnectedComponent> filter(Collection<ConnectedComponent> components)
+	public static boolean hasText(BufferedImage image) throws InterruptedException, IOException
+	{
+		ImageWrapper wrapper = new ImageWrapper(image);
+		ProjectionProfiler profiler = ProjectionProfiler.create(wrapper.getIntegralImage());
+		wrapper.getRaster();
+		List<Integer> lines = profiler.findLines();
+		if (lines.size() < 4) {
+			return false;
+		}
+
+		FastSauvola thresholder = new FastSauvola();
+		thresholder.initialize(wrapper);
+
+		int[] binaryIm = thresholder.call();
+		ConnectedComponents cc = new ConnectedComponents();
+		Collection<ConnectedComponent> components = cc.findCCs(binaryIm, wrapper.getWidth(), wrapper.getHeight());
+		components = filter(components);
+		Map<Integer, List<ConnectedComponent>> ccsByLine = matchLines(components, lines);
+		components = extractCCs(ccsByLine);
+
+		if (components.size() < 100)
+			return false;
+
+		IntegralImage iIm = wrapper.getIntegralImage();
+		double[] gaus = iIm.getGausModel(0, 0, iIm.getWidth() - 1, iIm.getHeight() - 1);
+		if (gaus[1] < 750)
+			return false;
+		if (gaus[0] < 100)
+			return false;
+
+		return true;
+	}
+
+	private static Collection<ConnectedComponent> filter(Collection<ConnectedComponent> components)
 	{
 		Collection<ConnectedComponent> result = new HashSet<>();
 		for (ConnectedComponent cc : components)
@@ -84,39 +117,6 @@ public class BlankPageDetector {
 		}
 
 		return result;
-	}
-
-	public static boolean hasText(BufferedImage image) throws InterruptedException, IOException
-	{
-		ImageWrapper wrapper = new ImageWrapper(image);
-		ProjectionProfiler profiler = ProjectionProfiler.create(wrapper.getIntegralImage());
-		wrapper.getRaster();
-		List<Integer> lines = profiler.findLines();
-		if (lines.size() < 4) {
-			return false;
-		}
-
-		FastSauvola thresholder = new FastSauvola();
-		thresholder.initialize(wrapper);
-
-		int[] binaryIm = thresholder.call();
-		ConnectedComponents cc = new ConnectedComponents();
-		Collection<ConnectedComponent> components = cc.findCCs(binaryIm, wrapper.getWidth(), wrapper.getHeight());
-		components = filter(components);
-		Map<Integer, List<ConnectedComponent>> ccsByLine = matchLines(components, lines);
-		components = extractCCs(ccsByLine);
-
-		if (components.size() < 100)
-			return false;
-
-		IntegralImage iIm = wrapper.getIntegralImage();
-		double[] gaus = iIm.getGausModel(0, 0, iIm.getWidth() - 1, iIm.getHeight() - 1);
-		if (gaus[1] < 750)
-			return false;
-		if (gaus[0] < 100)
-			return false;
-
-		return true;
 	}
 
 	private BlankPageDetector() {
